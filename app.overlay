@@ -1,0 +1,62 @@
+/ {
+    fstab {
+        compatible = "zephyr,fstab";
+
+        lfs_storage: lfs_storage {
+            compatible = "zephyr,fstab,littlefs";
+
+            partition = <&storage_partition>;
+            mount-point = "/lfs";
+
+            automount;
+
+            read-size = <16>;
+            prog-size = <16>;
+            cache-size = <64>;
+            lookahead-size = <32>;
+            block-cycles = <512>;
+        };
+    };
+};
+
+&i2c0 {
+    compatible = "nordic,nrf-twim";
+    status = "okay";
+    clock-frequency = <I2C_BITRATE_FAST>;
+};
+
+<<<<<<< HEAD
+&qspi {
+    status = "okay";
+
+    external_flash: flash@0 {
+        compatible = "nordic,qspi-nor";
+        reg = <0>;
+        size = <0x200000>; /* 2 MB */
+
+        partitions {
+            compatible = "fixed-partitions";
+            #address-cells = <1>;
+            #size-cells = <1>;
+
+            storage_partition: partition@0 {
+                label = "storage";
+                reg = <0x00000000 0x00200000>; /* full 2 MB */
+            };
+        };
+    };
+};
+=======
+&p25q16h {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		ext_storage_partition: partition@0 {
+			label = "ext-storage";
+			reg = <0x00000000 0x00200000>;
+		};
+	};
+};
+>>>>>>> 198331827c5f7e35e8680fbe476a251eb24c8ab4
