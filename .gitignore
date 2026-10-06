@@ -1,0 +1,9 @@
+# Generated Zephyr build directories
+build/
+build-*/
+
+# Local project backups
+backup-*/
+
+# Saved build output
+build-maxm-clean.log

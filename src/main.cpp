@@ -1,312 +1,53 @@
-#include <vector>
-
+#include <stdint.h>
 #include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/i2c.h>
+#include <zephyr/drivers/uart.h>
 #include <zephyr/sys/printk.h>
-#include <zephyr/fs/fs.h>
 
-#include <stdio.h>
-#include <string.h>
-
-#include "mySensor.hpp"
-// #include "compressNStore.hpp"
-
-using namespace std;
-
-/* ========== USER INPUTS ========== */
-
-int sleepTimeMilis = 50;
-int totalIterations = 100;
-
-/* ================================= */
+static const struct i2c_dt_spec sensor = I2C_DT_SPEC_GET(DT_NODELABEL(maxm86161));
 
 int main(void)
 {
-    k_msleep(2000);
 
-    printk("Houston, lookin good!\n\n");
-
-    k_msleep(500);
-
-    printk("i,ax,ay,az,gx,gy,gz\n");
-
-
-    /* =========================================
-       IMU SETUP
-       ========================================= */
-
-    NordBoardInternal boardImu;
-
-    boardImu.readData();
-
-    std::vector<double> data(totalIterations);
-<<<<<<< HEAD
-
-
-    /* =========================================
-       FILE SETUP
-       ========================================= */
-
-    struct fs_file_t file;
-
-    fs_file_t_init(&file);
-
-
-    int ret = fs_open(
-        &file,
-        "/lfs/imu_data.csv",
-        FS_O_CREATE | FS_O_WRITE
-    );
-
-
-    if (ret < 0)
-    {
-        printk("ERROR opening file: %d\n", ret);
+    const struct device *console = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
+    if (!device_is_ready(console)) {
         return 0;
     }
 
+    uint32_t dtr = 0;
+    while (dtr == 0) {
+        int ret = uart_line_ctrl_get(console, UART_LINE_CTRL_DTR, &dtr);
+        if (ret != 0) {
+            break;
+        }
+        k_msleep(100);
+    }
+    k_msleep(200);
 
-    printk("imu_data.csv opened successfully\n");
+    printk("\nMAXM86161A communication test\n");
+    printk("Bus: %s; device address: 0x%02x\n",
+           sensor.bus->name, (unsigned int)sensor.addr);
 
-
-    /* =========================================
-       WRITE CSV HEADER
-       ========================================= */
-
-    const char header[] =
-        "case,ax,ay,az,gx,gy,gz,label\n";
-
-
-    ret = fs_write(
-        &file,
-        header,
-        strlen(header)
-    );
-
-
-    if (ret < 0)
-    {
-        printk("ERROR writing header: %d\n", ret);
-
-        fs_close(&file);
-
+    if (!i2c_is_ready_dt(&sensor)) {
+        printk("FAIL: Nordic I2C controller is not ready\n");
         return 0;
     }
 
+    printk("I2C controller ready; reading PART_ID register 0xFF\n");
 
-    /* =========================================
-       SENSOR LOOP
-       ========================================= */
+    while (true) {
+        uint8_t part_id = 0;
+        int ret = i2c_reg_read_byte_dt(&sensor, 0xFF, &part_id);
 
-    char line[200];
-
-    int currentIteration = 0;
-
-
-    while (currentIteration < totalIterations)
-    {
-        /* Get new IMU measurement */
-
-        boardImu.readData();
-
-
-        /* Store accel_x for your compression code */
-
-        data[currentIteration] = boardImu.accel_x;
-
-
-        /* Print to terminal like before */
-
-        printk(
-            "%d: %f,%f,%f,%f,%f,%f\n",
-            currentIteration,
-            (double)boardImu.accel_x,
-            (double)boardImu.accel_y,
-            (double)boardImu.accel_z,
-            (double)boardImu.gyro_x,
-            (double)boardImu.gyro_y,
-            (double)boardImu.gyro_z
-        );
-
-
-        /* =====================================
-           CREATE ONE CSV ROW IN RAM
-           ===================================== */
-
-        int len = snprintf(
-            line,
-            sizeof(line),
-            "%d,%f,%f,%f,%f,%f,%f,Walking\n",
-            currentIteration,
-            (double)boardImu.accel_x,
-            (double)boardImu.accel_y,
-            (double)boardImu.accel_z,
-            (double)boardImu.gyro_x,
-            (double)boardImu.gyro_y,
-            (double)boardImu.gyro_z
-        );
-
-
-        if (len < 0)
-        {
-            printk("ERROR creating CSV line\n");
+        if (ret != 0) {
+            printk("FAIL: read at 0x62 failed; error=%d\n", ret);
+        } else if (part_id == 0x36) {
+            printk("PASS: I2C read succeeded; PART_ID=0x36 (expected)\n");
+        } else {
+            printk("MISMATCH: I2C read succeeded; PART_ID=0x%02x; expected 0x36\n",
+                   (unsigned int)part_id);
         }
-        else
-        {
-            /* =================================
-               WRITE ROW INTO FLASH
-               ================================= */
-
-            ret = fs_write(
-                &file,
-                line,
-                len
-            );
-
-
-            if (ret < 0)
-            {
-                printk(
-                    "ERROR writing CSV: %d\n",
-                    ret
-                );
-            }
-        }
-
-
-        /* Sync every 20 samples */
-
-        if ((currentIteration + 1) % 20 == 0)
-        {
-            ret = fs_sync(&file);
-
-            if (ret < 0)
-            {
-                printk(
-                    "ERROR syncing file: %d\n",
-                    ret
-                );
-            }
-        }
-
-
-        currentIteration++;
-
-        k_msleep(sleepTimeMilis);
+        k_msleep(2000);
     }
-
-
-    /* =========================================
-       FINISH FILE
-       ========================================= */
-
-    fs_sync(&file);
-
-    fs_close(&file);
-
-    printk("\nCSV file saved!\n");
-    printk("Location: /lfs/imu_data.csv\n\n");
-    /* =========================================
-   READ CSV BACK AND PRINT IT
-   ========================================= */
-
-fs_file_t_init(&file);
-
-ret = fs_open(
-    &file,
-    "/lfs/imu_data.csv",
-    FS_O_READ
-);
-
-if (ret < 0)
-{
-    printk("ERROR opening CSV for reading: %d\n", ret);
-    return 0;
-}
-
-printk("\n========== CSV CONTENTS ==========\n");
-
-char readBuffer[128];
-
-while (1)
-{
-    int bytesRead = fs_read(
-        &file,
-        readBuffer,
-        sizeof(readBuffer) - 1
-    );
-
-    if (bytesRead < 0)
-    {
-        printk("ERROR reading CSV: %d\n", bytesRead);
-        break;
-    }
-
-    if (bytesRead == 0)
-    {
-        break;
-    }
-
-    readBuffer[bytesRead] = '\0';
-
-    printk("%s", readBuffer);
-}
-
-printk("\n========== END CSV ==========\n");
-
-fs_close(&file);
-
-    /* =========================================
-       YOUR EXISTING COMPRESSION CODE
-       ========================================= */
-
-    printk(
-        "Bytes before compression: %d\n",
-        8 * totalIterations
-    );
-
-    int totalBytes =
-        compressDataCol(
-            compressDataRow(data)
-        );
-
-    printk(
-        "Bytes after compression: %d\n",
-        totalBytes
-    );
-
-
-=======
-    // uint8_t case_num = 0;
-
-    while (1) {
-        currentIteration++;
-        boardImu.readData();
-        data[currentIteration - 1] = boardImu.accel_x;
-
-        k_msleep(sleepTimeMilis);
-        // printk("%d: %f,%f,%f,%f,%f,%f\n",
-        //     currentIteration,
-        //     (double) (boardImu.accel_x),
-        //     (double) (boardImu.accel_y), 
-        //     (double) (boardImu.accel_z),
-        //     (double) (boardImu.gyro_x), 
-        //     (double) (boardImu.gyro_y), 
-        //     (double) (boardImu.gyro_z));
-
-        /*
-        ofstream file("imu_data.csv");
-        file << "case" << "ax" << "," << "ay" << "," << "az" << "," << "gx" << "," << "gy" << "," << "gz" << "label" << "\n"; // #delete this line after first run
-        file << "case" << case_num  << "," << boardImu.accel_x << "," << boardImu.accel_y << "," << boardImu.accel_z << "," << boardImu.gyro_x << "," << boardImu.gyro_y << "," << boardImu.gyro_z << "n/a" <<  "\n";
-        file.flush();
-        */
-
-        if (currentIteration == totalIterations) break;
-    }
-    /*
-    printk("Bytes before compression: %d\n", 8 * totalIterations);
-    int totalBytes = compressDataCol(compressDataRow(data));
-    printk("Bytes after compression: %d\n", totalBytes);
-    */
->>>>>>> 198331827c5f7e35e8680fbe476a251eb24c8ab4
-    return 0;
 }
